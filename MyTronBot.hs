@@ -6,7 +6,6 @@ setBuffers = do
     hSetBuffering stdin LineBuffering
     hSetBuffering stdout LineBuffering
 
---main = playBot testBot startingValue
 main = playBot myBot startingValue
 
 playBot :: ([[Spot]] -> a -> (Move, a)) -> a -> IO ()
@@ -50,9 +49,8 @@ canMove move s (x,y) tronMap
     | move == South	= if y+1 == (length tronMap) then False else (s == ((tronMap !! (y+1)) !! x))
     | move == West	= if x == 0 then False else (s == ((tronMap !! y) !! (x-1)))
 
-testBot :: [[Spot]] -> a -> (Move, a)
-testBot tronMap b = (head possibleMoves, b)
-    where possibleMoves = (filter (\a -> canMove a Blank (me tronMap) tronMap) [North, East, South, West]) ++ [North]
+
+
 
 
 ----------------------- {- New code -} ------------------------------------
@@ -68,7 +66,7 @@ myBot tronMap b = (head $ step3 tronMap, b )
 
 
 step3 tM | length s2 > 0 = [ head s2 ]
-         | otherwise = floodStep3 tM ++ bestMove tM ++ enemyTo tM ++ [North] 
+         | otherwise = step3Decide tM ++ bestMove tM ++ enemyTo tM ++ [North] 
       where s2 = step2 tM
 
 bestMove tronMap = (filter (\a -> canMove a Blank (me tronMap) tronMap) [North, East, South, West])
@@ -88,6 +86,14 @@ step1 tronMap = if (length findPath < 2)
                    else findPath
    where findPath = aStar tronMap (me tronMap) (them tronMap)
 
+
+{- Type for holding x and y cordinates of a vertex.  -}
+type Vertex = (Int, Int)
+
+{-
+  Simple function to return the cardinal direction to move to get from one
+  vertext to another.
+-}
 locDiff:: Vertex -> Vertex -> Move
 locDiff (x,y) (x2,y2)
   | y<y2 = South
@@ -96,31 +102,13 @@ locDiff (x,y) (x2,y2)
   | x>x2 = West
   | otherwise = North
 
-verToMove (x,y) (vx, vy)  
-              | vy > y = North
-              | vy < y = South
-              | vx > x = East
-              | otherwise = West
 
-{- Type for holding x and y cordinates of a vertex.  -}
-type Vertex = (Int, Int)
+
+
+
 
 {-
-  Returns a list of the open vertices adjacent to the passed vertex.
--}
-adjOpenVert:: [[Spot]] -> Vertex -> [Vertex]
-adjOpenVert t (x,y) = [ a | a <- [(x+1,y),(x-1,y),(x,y+1),(x,y-1)] , isOpen t a ]
-
-{-
-  Returns a boolean value on whether a particular vertex is "open", that is,
-  whether it is a Blank or the Enemy.
--}
-isOpen:: [[Spot]] -> Vertex -> Bool
-isOpen t (x,y) = any (== getSpot) [Blank,Enemy]
-   where getSpot = ((t !! y) !! x)
-
-{-
-  Modified bfs, using a Manhattan distance heuristic to add to the pending list.  New
+  Modified BFS, using a Manhattan distance heuristic to add to the pending list.  New
   nodes are added to the pending list by inserting it into the correct sorted position
   by Manhattan distance.  This way, closer vertices are followed before vertices on
   the far side of the current vertex away from the destination.  The far side child
@@ -139,6 +127,14 @@ aStar tronMap source dest = help [(source,[source],0)] []
                     | elem c visited = add cs qs
                     | otherwise = add cs ( sortBy mDistSort ((c, c:ps, (manhDist dest c) ):qs))
 
+{-
+  Returns a list of the open vertices adjacent to the passed vertex.
+-}
+adjOpenVert:: [[Spot]] -> Vertex -> [Vertex]
+adjOpenVert t (x,y) = [ a | a <- [(x+1,y),(x-1,y),(x,y+1),(x,y-1)] , isOpen t a ]
+       where isOpen t (x,y) = any (== getSpot) [Blank,Enemy]
+               where getSpot = ((t !! y) !! x)
+
 {- Calculate Manhattan distance between two vertices -}
 manhDist (x,y) (cx,cy) = (x-cx)*(x-cx) + (y-cy)*(y-cy)
 
@@ -149,27 +145,17 @@ mDistSort (c,cps,d1) (b,bps,d2) | d1 < d2 = LT
 
 
 
-sortByWalls :: [[Spot]] -> [Vertex] -> Vertex
-sortByWalls tM (x:y:xs) = sortByWalls tM ((ff x y):xs)
-   where ff a b | wallCount tM a > wallCount tM b = a
-                | otherwise = b
-sortByWalls tM (x:xs) = x
 
-wallCount tM (x,y) = sum [ 1 | a <- eightP, isWall tM a]
-   where eightP = [(x+1,y+1),(x+1,y),(x+1,y-1),(x,y-1),(x-1,y-1),(x-1,y),(x-1,y+1),(x,y+1)]
 
 
 {-
-  Returns a boolean value on whether a particular vertex is "Wall".
+  Series of functions to decide which way to move when cut off from the other
+  bot.  First, sorts possible moves by flood amount.  Then out of those moves
+  with the greatest flood values, looks for the move that is next to the most
+  walls.
 -}
-isWall:: [[Spot]] -> Vertex -> Bool
-isWall t v = Wall == getSpot v
-             where getSpot (x,y) = ((t !! y) !! x)
-
-
-
-floodStep3:: [[Spot]] -> [Move]
-floodStep3 tM | length children == 0 = []
+step3Decide:: [[Spot]] -> [Move]
+step3Decide tM | length children == 0 = []
                     | length children == 1 = [ locDiff (me tM) (head children) ]
                     | otherwise            = [ locDiff (me tM) sortW ]
      where children = adjBVert tM (me tM)
@@ -182,8 +168,17 @@ sortByFlood3 tM [] = []
 sortByFlood3 tM cs = filter (\x -> floodFill tM x [] == (maxFloodLength)) cs 
            where maxFloodLength = maximum [ floodFill tM x [] | x <- cs ]
 
+sortByWalls :: [[Spot]] -> [Vertex] -> Vertex
+sortByWalls tM (x:y:xs) = sortByWalls tM ((ff x y):xs)
+   where ff a b | wallCount tM a > wallCount tM b = a
+                | otherwise = b
+sortByWalls tM (x:xs) = x
 
-
+{- Returns Int value count of number of walls in the 8 cardinal directions. -}
+wallCount tM (x,y) = sum [ 1 | a <- eightP, isWall tM a]
+   where eightP = [(x+1,y+1),(x+1,y),(x+1,y-1),(x,y-1),(x-1,y-1),(x-1,y),(x-1,y+1),(x,y+1)]
+         isWall t v = Wall == getSpot v
+             where getSpot (x,y) = ((t !! y) !! x)
 
 
 
@@ -207,6 +202,8 @@ nextToSort tM (x:xs)   = x
 closestToThem:: [[Spot]] -> Vertex -> Vertex -> Vertex
 closestToThem tM a b | manhDist a (them tM) > manhDist b (them tM) = b
                      | otherwise = a
+
+
 
 
 {- Functions to sort adjacent vertices when bots have one space between them. -}
@@ -250,7 +247,16 @@ minimaxSort2 tM (c1:cs) ts = (minimaxValue c1 ts) + minimaxSort2 tM (cs) ts
 minimaxSort2 tM [] _ = 0
 
 
-{- Series of functions to sort adjacent vertices by number of flood spaces -}
+
+
+
+
+{- 
+  Series of functions to sort adjacent vertices by number of flood spaces.
+  Used when player bot is within 6 moves of the other bot, so as to determine
+  which move leads to the greatest open area while still generally moving
+  towards the other bot to cut them off.
+-}
 floodFillDecide:: [[Spot]] -> [Move]
 floodFillDecide tM | length children == 0 = []
                    | length children == 1 = [ locDiff (me tM) (head children) ]
@@ -259,8 +265,6 @@ floodFillDecide tM | length children == 0 = []
 
 sortByFlood :: [[Spot]] -> [Vertex] -> Vertex
 sortByFlood tM (x:y:xs) = sortByFlood tM ((ff):xs)
---   where ff | floodFill tM x (y:xs ++ themV) == floodFill tM y (x:xs ++ themV) = closestToThem tM x y
---            | floodFill tM x (y:xs ++ themV) > floodFill tM y (x:xs ++ themV) = x
    where ff | floodFill tM x (themV) == floodFill tM y (themV) = closestToThem tM x y
             | floodFill tM x (themV) > floodFill tM y (themV) = x
             | otherwise = y 
@@ -281,18 +285,10 @@ floodFill tronMap source initVisited = help [source] initVisited
                        then add cs qs
                        else add cs (c:qs)
 
-
-{-
-  Returns a list of the Blank vertices that adjacent to the passed vertex.
--}
+{- Returns a list of the Blank vertices that adjacent to the passed vertex. -}
 adjBVert:: [[Spot]] -> Vertex -> [Vertex]
 adjBVert t (x,y) = [ a | a <- [(x+1,y),(x-1,y),(x,y+1),(x,y-1)], isBlank t a]
-
-{-
-  Returns a boolean value on whether a particular vertex is "Blank".
--}
-isBlank:: [[Spot]] -> Vertex -> Bool
-isBlank t v = Blank == getSpot v
+     where isBlank t v = Blank == getSpot v
              where getSpot (x,y) = ((t !! y) !! x)
 
 -------------------- TESTING --------------------------
@@ -403,7 +399,7 @@ tm8string = [
    "#         #   #" ,
    "#         #   #" ,
    "#         ### #" ,
-   "#          ###" ,
+   "#           ###" ,
    "###############"
    ]
 tm8 = map (map readSpot) (take 15 (tail tm8string))
@@ -472,5 +468,4 @@ sortAwayWalls tM (x:y:xs)
 sortAwayWalls tM (x:xs) = [x]
 sortAwayWalls tM [] = []
 -}
-
 
